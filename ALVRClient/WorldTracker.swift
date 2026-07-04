@@ -296,6 +296,11 @@ class WorldTracker {
     var firstControllerClickTime = 0.0
     var secondControllerClickTime = 0.0
     var controllersAreDisabledByClickTogether = false
+
+    // Whether Surreal controller inputs were sent last frame, so a final all-zero
+    // state goes out when one drops off (nothing stays held server-side)
+    var leftSurrealInputsWereActive = false
+    var rightSurrealInputsWereActive = false
     
     // PS VR2 controller interaction profile from Sony PS VR2 steam app
     static let psvrInteractionProfile = alvr_path_string_to_id("/interaction_profiles/sony/playstation_vr2_sense_controller")
@@ -1228,6 +1233,37 @@ class WorldTracker {
         return nil
     }
 
+    func surrealToAlvrDeviceMotion(_ isLeft: Bool, _ targetTs: Double) -> AlvrDeviceMotion? {
+        if self.controllersAreDisabledByClickTogether {
+            return nil
+        }
+        guard let snap = SurrealInputCache.shared.pose(isLeft: isLeft) else {
+            return nil
+        }
+        let device_id = isLeft ? WorldTracker.deviceIdLeftHand : WorldTracker.deviceIdRightHand
+
+        // Grip alignment against the emulated controller's OpenXR grip pose; tune the
+        // pitch on-device if needed (cf. the PSVR2 5.037° correction above).
+        let correctionPitchDegrees: Float = 0.0
+        let rotationCorrection = simd_quatf(angle: correctionPitchDegrees * .pi / 180.0, axis: simd_float3(1, 0, 0))
+
+        // BLE poses arrive below display rate; constant-velocity position prediction
+        // to the render target timestamp hides most of the extra latency.
+        var worldFromController = snap.worldFromController
+        let dt = Float(min(max(targetTs - snap.receivedAt, 0.0), 0.05))
+        worldFromController.columns.3 += simd_float4(snap.linearVelocity * dt, 0.0)
+
+        // Convert from Apple space to SteamVR space
+        let transform = self.worldTrackingSteamVRTransform.inverse * worldFromController
+        let orientation = (simd_quaternion(transform) * rotationCorrection).asSanitized()
+        let position = transform.columns.3.asSanitized()
+        let linVel = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * snap.linearVelocity).asSanitized()
+        let angVel = snap.angularVelocity.asSanitized()
+
+        let pose = AlvrPose(orientation: AlvrQuat(x: orientation.vector.x, y: orientation.vector.y, z: orientation.vector.z, w: orientation.vector.w), position: (position.x, position.y, position.z))
+        return AlvrDeviceMotion(device_id: device_id, pose: pose, linear_velocity: (linVel.x, linVel.y, linVel.z), angular_velocity: (angVel.x, angVel.y, angVel.z))
+    }
+
     func handAnchorToAlvrDeviceMotion(_ hand: HandAnchor, _ targetTs: Double) -> AlvrDeviceMotion {
         let device_id = hand.chirality == .left ? WorldTracker.deviceIdLeftHand : WorldTracker.deviceIdRightHand
         let controllerMotion = controllerToAlvrDeviceMotion(hand.chirality == .left, targetTs)
@@ -1590,15 +1626,73 @@ class WorldTracker {
         }
     }
     
+    func sendSurrealControllerInputs() {
+        func boolVal(_ val: Bool) -> AlvrButtonValue {
+            return AlvrButtonValue(tag: ALVR_BUTTON_VALUE_BINARY, AlvrButtonValue.__Unnamed_union___Anonymous_field1(AlvrButtonValue.__Unnamed_union___Anonymous_field1.__Unnamed_struct___Anonymous_field0(binary: val)))
+        }
+
+        func scalarVal(_ val: Float) -> AlvrButtonValue {
+            return AlvrButtonValue(tag: ALVR_BUTTON_VALUE_SCALAR, AlvrButtonValue.__Unnamed_union___Anonymous_field1(AlvrButtonValue.__Unnamed_union___Anonymous_field1.__Unnamed_struct___Anonymous_field1(scalar: val)))
+        }
+
+        func sendHand(_ isLeft: Bool) {
+            // A spatial accessory covering this hand wins, same priority as poses
+            let accessoryCovers = (isLeft ? self.leftControllerPose : self.rightControllerPose) != nil && self.accessoryTracking != nil
+            let live = accessoryCovers ? nil : SurrealInputCache.shared.buttons(isLeft: isLeft)
+            let wasActive = isLeft ? leftSurrealInputsWereActive : rightSurrealInputsWereActive
+            guard live != nil || wasActive else {
+                return
+            }
+            if isLeft {
+                leftSurrealInputsWereActive = live != nil
+            }
+            else {
+                rightSurrealInputsWereActive = live != nil
+            }
+            // When the controller drops off, send one final all-zero state so nothing stays held
+            let b = live ?? SurrealButtonsSnapshot()
+
+            alvr_send_button(isLeft ? WorldTracker.leftButtonX : WorldTracker.rightButtonA, boolVal(b.primary))
+            alvr_send_button(isLeft ? WorldTracker.leftButtonXTouched : WorldTracker.rightButtonATouched, boolVal(b.primary))
+            alvr_send_button(isLeft ? WorldTracker.leftButtonY : WorldTracker.rightButtonB, boolVal(b.secondary))
+            alvr_send_button(isLeft ? WorldTracker.leftButtonYTouched : WorldTracker.rightButtonBTouched, boolVal(b.secondary))
+            alvr_send_button(isLeft ? WorldTracker.leftMenuClick : WorldTracker.rightMenuClick, boolVal(b.menu))
+            alvr_send_button(isLeft ? WorldTracker.leftSystemClick : WorldTracker.rightSystemClick, boolVal(b.menu))
+            alvr_send_button(isLeft ? WorldTracker.leftThumbstickClick : WorldTracker.rightThumbstickClick, boolVal(b.stickClick))
+            alvr_send_button(isLeft ? WorldTracker.leftThumbstickX : WorldTracker.rightThumbstickX, scalarVal(b.stick.x))
+            alvr_send_button(isLeft ? WorldTracker.leftThumbstickY : WorldTracker.rightThumbstickY, scalarVal(b.stick.y))
+            if (isLeft ? leftPinchTrigger : rightPinchTrigger) <= 0.0 {
+                alvr_send_button(isLeft ? WorldTracker.leftTriggerClick : WorldTracker.rightTriggerClick, boolVal(b.trigger > 0.7))
+                alvr_send_button(isLeft ? WorldTracker.leftTriggerValue : WorldTracker.rightTriggerValue, scalarVal(b.trigger))
+            }
+            alvr_send_button(isLeft ? WorldTracker.leftSqueezeClick : WorldTracker.rightSqueezeClick, boolVal(b.grip > 0.7))
+            alvr_send_button(isLeft ? WorldTracker.leftSqueezeValue : WorldTracker.rightSqueezeValue, scalarVal(b.grip))
+            alvr_send_button(isLeft ? WorldTracker.leftSqueezeForce : WorldTracker.rightSqueezeForce, scalarVal(b.grip))
+
+            if b.primary || b.secondary || b.menu || b.stickClick || b.trigger > 0.1 || b.grip > 0.1 || abs(b.stick.x) > 0.1 || abs(b.stick.y) > 0.1 {
+                if isLeft {
+                    leftSkeletonDisableHysteresis = defaultSkeletonDisableHysteresis
+                }
+                else {
+                    rightSkeletonDisableHysteresis = defaultSkeletonDisableHysteresis
+                }
+            }
+        }
+        sendHand(true)
+        sendHand(false)
+    }
+
     func sendGamepadInputs() {
         func boolVal(_ val: Bool) -> AlvrButtonValue {
             return AlvrButtonValue(tag: ALVR_BUTTON_VALUE_BINARY, AlvrButtonValue.__Unnamed_union___Anonymous_field1(AlvrButtonValue.__Unnamed_union___Anonymous_field1.__Unnamed_struct___Anonymous_field0(binary: val)))
         }
-        
+
         func scalarVal(_ val: Float) -> AlvrButtonValue {
             return AlvrButtonValue(tag: ALVR_BUTTON_VALUE_SCALAR, AlvrButtonValue.__Unnamed_union___Anonymous_field1(AlvrButtonValue.__Unnamed_union___Anonymous_field1.__Unnamed_struct___Anonymous_field1(scalar: val)))
         }
-        
+
+        sendSurrealControllerInputs()
+
         // TODO: keyboards? trackpads?
         /*
         if let keyboard = GCKeyboard.coalesced?.keyboardInput {
@@ -2644,7 +2738,20 @@ class WorldTracker {
             trackingMotions.removeAll(where: {$0.device_id == WorldTracker.deviceIdRightHand })
             trackingMotions.append(controllerRightMotion!)
         }
-        
+
+        // Surreal Touch controllers fill any hand slot not covered by a spatial accessory
+        if controllerLeftMotion == nil, let surrealLeftMotion = surrealToAlvrDeviceMotion(true, controllerPredictionTimestamp) {
+            trackingMotions.removeAll(where: {$0.device_id == WorldTracker.deviceIdLeftHand })
+            trackingMotions.append(surrealLeftMotion)
+            // Update hand pose for chaperone system even when using controllers
+            lastLeftHandPose = surrealLeftMotion.pose
+        }
+        if controllerRightMotion == nil, let surrealRightMotion = surrealToAlvrDeviceMotion(false, controllerPredictionTimestamp) {
+            trackingMotions.removeAll(where: {$0.device_id == WorldTracker.deviceIdRightHand })
+            trackingMotions.append(surrealRightMotion)
+            lastRightHandPose = surrealRightMotion.pose
+        }
+
         // For hand gestures, we have to avoid sending controller motions
         if handGesturesEnabled {
             if skeletonLeft != nil {

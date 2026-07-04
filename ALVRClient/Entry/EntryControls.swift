@@ -4,6 +4,7 @@ Controls that allow entry into the ALVR environment.
 */
 
 import SwiftUI
+import OpenSurreal
 
 /// Controls that allow entry into the ALVR environment.
 struct EntryControls: View {
@@ -12,6 +13,7 @@ struct EntryControls: View {
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var eventHandler = EventHandler.shared
+    @ObservedObject var surrealManager = SurrealControllerManager.shared
     @EnvironmentObject var gStore: GlobalSettingsStore
     
     @State private var showImmersiveSpace = false
@@ -39,6 +41,22 @@ struct EntryControls: View {
         .toggleStyle(.button)
         .buttonStyle(.borderless)
         .glassBackgroundEffect(in: .rect(cornerRadius: 50))
+
+        // A full trigger pull on either Surreal controller acts like tapping Enter
+        .task(id: surrealManager.session.map(ObjectIdentifier.init)) {
+            guard let session = surrealManager.session else { return }
+            var leftPulled = false
+            var rightPulled = false
+            for await update in session.buttonUpdates {
+                let wasPulled = update.handedness == .left ? leftPulled : rightPulled
+                // Fire at a full pull, rearm once released halfway
+                let pulled = update.trigger >= (wasPulled ? 0.5 : 0.95)
+                if update.handedness == .left { leftPulled = pulled } else { rightPulled = pulled }
+                if pulled && !wasPulled && eventHandler.connectionState == .connected && !model.isShowingClient {
+                    model.isShowingClient = true
+                }
+            }
+        }
 
         //Enable Client
         .onChange(of: model.isShowingClient) { _, isShowing in

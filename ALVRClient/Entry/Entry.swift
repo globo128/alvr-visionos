@@ -5,10 +5,13 @@ The Entry content for a volume.
 
 import SwiftUI
 import UIKit
+import OpenSurreal
 
 struct Entry: View {
     @ObservedObject var eventHandler = EventHandler.shared
+    @ObservedObject var surrealManager = SurrealControllerManager.shared
     @EnvironmentObject var gStore: GlobalSettingsStore
+    @State private var showSurrealControllers = false
     @Binding var chromaKeyColor: Color
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.self) var environment
@@ -104,7 +107,33 @@ struct Entry: View {
                         Text("Send gaze-pinch interactions as controller inputs")
                     }
                     .toggleStyle(.switch)
-                    
+
+                    Toggle(isOn: $gStore.settings.surrealControllersEnabled) {
+                        Text("Surreal Touch controllers")
+                        Text("Set the streamer's controller emulation mode to Quest 2/3 Touch for best results")
+                            .font(.system(size: 10))
+                    }
+                    .toggleStyle(.switch)
+                    .onChange(of: gStore.settings.surrealControllersEnabled) {
+                        if gStore.settings.surrealControllersEnabled {
+                            SurrealControllerManager.shared.start()
+                        }
+                        else {
+                            SurrealControllerManager.shared.stop()
+                        }
+                        saveAction()
+                    }
+
+                    Button {
+                        gStore.settings.surrealControllersEnabled = true
+                        SurrealControllerManager.shared.start()
+                        saveAction()
+                        showSurrealControllers = true
+                    } label: {
+                        Label("Manage Surreal controllers…", systemImage: "gamecontroller")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     HStack {
                         Text("Stream refresh rate*")
                         Picker("Stream refresh rate", selection: $gStore.settings.streamFPS) {
@@ -365,6 +394,12 @@ struct Entry: View {
         }
         .frame(minWidth: 650, maxWidth: 650)
         .glassBackgroundEffect()
+        .sheet(isPresented: $showSurrealControllers) {
+            if let session = surrealManager.session {
+                SurrealControllerView(session: session, onDone: { showSurrealControllers = false })
+                    .frame(minWidth: 480, minHeight: 560)
+            }
+        }
         .onChange(of: scenePhase) {
             switch scenePhase {
             case .background:

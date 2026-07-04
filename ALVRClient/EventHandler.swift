@@ -838,6 +838,16 @@ class EventHandler: ObservableObject {
                     WorldTracker.shared.rightHapticsFreq = haptics.frequency
                     WorldTracker.shared.rightHapticsAmplitude = haptics.amplitude
                 }
+
+                let isLeftHaptic = haptics.device_id == WorldTracker.deviceIdLeftHand
+                if SurrealInputCache.shared.isActive(isLeft: isLeftHaptic) {
+                    let amplitude = haptics.amplitude
+                    let frequency = haptics.frequency
+                    let hapticDuration = duration
+                    Task { @MainActor in
+                        SurrealControllerManager.shared.vibrate(isLeft: isLeftHaptic, amplitude: amplitude, frequency: frequency, duration: hapticDuration)
+                    }
+                }
             case ALVR_EVENT_DECODER_CONFIG.rawValue:
                 streamingActive = true
                 currentCodec = Int(alvrEvent.DECODER_CONFIG.codec)

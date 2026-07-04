@@ -135,6 +135,9 @@ struct ALVRClientApp: App {
                 EventHandler.shared.initializeAlvr()
                 await WorldTracker.shared.initializeAr()
                 EventHandler.shared.start()
+                if ALVRClientApp.gStore.settings.surrealControllersEnabled {
+                    SurrealControllerManager.shared.start()
+                }
             }
             .onChange(of: observedGStore.settings.enableProgressive) {
                 realityKitImmersionStyle = ALVRClientApp.gStore.settings.enableProgressive ? .progressive : .mixed

@@ -31,7 +31,8 @@ struct GlobalSettings: Codable {
     var lastUsedAppVersion = "never launched"
     var chaperoneDistanceCm: Int = 0
     var showPerformanceHud: Bool = false
-    
+    var surrealControllersEnabled: Bool = false
+
     init() {}
     
     init(from decoder: Decoder) throws {
@@ -60,6 +61,7 @@ struct GlobalSettings: Codable {
         self.lastUsedAppVersion = try container.decodeIfPresent(String.self, forKey: .lastUsedAppVersion) ?? self.lastUsedAppVersion
         self.chaperoneDistanceCm = try container.decodeIfPresent(Int.self, forKey: .chaperoneDistanceCm) ?? self.chaperoneDistanceCm
         self.showPerformanceHud = try container.decodeIfPresent(Bool.self, forKey: .showPerformanceHud) ?? self.showPerformanceHud
+        self.surrealControllersEnabled = try container.decodeIfPresent(Bool.self, forKey: .surrealControllersEnabled) ?? self.surrealControllersEnabled
     }
 }
 

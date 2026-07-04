@@ -8,13 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		656A9FCF2F04031600D8DE2D /* ChaperoneSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656A9FCE2F04031600D8DE2D /* ChaperoneSystem.swift */; };
-		93F10375671142039BA634E8 /* PerformanceTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDF7F3AB0664D5089D91DE3 /* PerformanceTracker.swift */; };
-		E7AC9193873D48A2B7122E11 /* PerformanceOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD00478C3614F7DB55D935E /* PerformanceOverlayView.swift */; };
 		8E1240FF2B7CC02E005B75F2 /* Entry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1240FE2B7CC02E005B75F2 /* Entry.swift */; };
 		8E1241032B7CC0E1005B75F2 /* EntryControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1241022B7CC0E1005B75F2 /* EntryControls.swift */; };
 		8E458AB32B7E05FB0019FC73 /* EventHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E458AB22B7E05FB0019FC73 /* EventHandler.swift */; };
 		8E458AB52B7E2C010019FC73 /* WorldTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E458AB42B7E2C010019FC73 /* WorldTracker.swift */; };
 		8E739C8B2B78990B0045ED16 /* ViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E739C8A2B78990A0045ED16 /* ViewModel.swift */; };
+		93F10375671142039BA634E8 /* PerformanceTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDF7F3AB0664D5089D91DE3 /* PerformanceTracker.swift */; };
 		9ED257172B8062A2008DC22F /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ED257162B8062A1008DC22F /* Settings.swift */; };
 		C5E590322B6379ED00328ED6 /* ALVRClientApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E590312B6379ED00328ED6 /* ALVRClientApp.swift */; };
 		C5E590362B6379ED00328ED6 /* Renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E590352B6379ED00328ED6 /* Renderer.swift */; };
@@ -43,10 +42,13 @@
 		E78D482F2EBA76BB000F77D7 /* NALParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E78D482E2EBA76B8000F77D7 /* NALParser.swift */; };
 		E7A98A9E2BE2EEAB003DF333 /* DummyMetalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A98A9D2BE2EEA5003DF333 /* DummyMetalRenderer.swift */; };
 		E7A98AA02BE2EEEA003DF333 /* RealityKitClientSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A98A9F2BE2EEEA003DF333 /* RealityKitClientSystem.swift */; };
+		E7AC9193873D48A2B7122E11 /* PerformanceOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD00478C3614F7DB55D935E /* PerformanceOverlayView.swift */; };
 		E7D606032C1B5D39009E3343 /* RealityKitEyeTrackingSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7D606022C1B5D37009E3343 /* RealityKitEyeTrackingSystem.swift */; };
 		E7D606052C1B646D009E3343 /* EyeTrackingMats.usda in Resources */ = {isa = PBXBuildFile; fileRef = E7D606042C1B646D009E3343 /* EyeTrackingMats.usda */; };
 		E7F222422BE2F03800D10191 /* RealityKitClientView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F222412BE2F03800D10191 /* RealityKitClientView.swift */; };
 		E7F222442BE2F21600D10191 /* SBSMaterial.usda in Resources */ = {isa = PBXBuildFile; fileRef = E7F222432BE2F21600D10191 /* SBSMaterial.usda */; };
+		ED26E1442FF97A5000DBFB6F /* OpenSurreal in Frameworks */ = {isa = PBXBuildFile; productRef = ED26E1432FF97A5000DBFB6F /* OpenSurreal */; };
+		ED26E1462FF97A7700DBFB6F /* SurrealControllerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED26E1452FF97A7700DBFB6F /* SurrealControllerManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,9 +87,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		656A9FCE2F04031600D8DE2D /* ChaperoneSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaperoneSystem.swift; sourceTree = "<group>"; };
 		0FDF7F3AB0664D5089D91DE3 /* PerformanceTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTracker.swift; sourceTree = "<group>"; };
 		5BD00478C3614F7DB55D935E /* PerformanceOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceOverlayView.swift; sourceTree = "<group>"; };
+		656A9FCE2F04031600D8DE2D /* ChaperoneSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaperoneSystem.swift; sourceTree = "<group>"; };
 		8E1240FE2B7CC02E005B75F2 /* Entry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Entry.swift; sourceTree = "<group>"; };
 		8E1241022B7CC0E1005B75F2 /* EntryControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryControls.swift; sourceTree = "<group>"; };
 		8E458AB22B7E05FB0019FC73 /* EventHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventHandler.swift; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 		E7D606042C1B646D009E3343 /* EyeTrackingMats.usda */ = {isa = PBXFileReference; lastKnownFileType = text; path = EyeTrackingMats.usda; sourceTree = "<group>"; };
 		E7F222412BE2F03800D10191 /* RealityKitClientView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealityKitClientView.swift; sourceTree = "<group>"; };
 		E7F222432BE2F21600D10191 /* SBSMaterial.usda */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = SBSMaterial.usda; sourceTree = "<group>"; };
+		ED26E1452FF97A7700DBFB6F /* SurrealControllerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurrealControllerManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,6 +146,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E769ABF22C1CE6D900E016CE /* ALVRClientCore.xcframework in Frameworks */,
+				ED26E1442FF97A5000DBFB6F /* OpenSurreal in Frameworks */,
 				E7285AAE2B9C44CB0032514C /* AVKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -201,6 +205,7 @@
 		C5E5902C2B6379ED00328ED6 /* ALVRClient */ = {
 			isa = PBXGroup;
 			children = (
+				ED26E1452FF97A7700DBFB6F /* SurrealControllerManager.swift */,
 				E71DEFB22C19263D008A2074 /* ALVRClient.entitlements */,
 				E71DEF962C18D425008A2074 /* Extensions */,
 				8E1240FD2B7CC021005B75F2 /* Entry */,
@@ -298,6 +303,7 @@
 			);
 			name = ALVRClient;
 			packageProductDependencies = (
+				ED26E1432FF97A5000DBFB6F /* OpenSurreal */,
 			);
 			productName = ALVRClient;
 			productReference = C5E5902A2B6379ED00328ED6 /* ALVRClient.app */;
@@ -348,6 +354,7 @@
 			);
 			mainGroup = C5E590212B6379ED00328ED6;
 			packageReferences = (
+				ED26E1402FF979CB00DBFB6F /* XCRemoteSwiftPackageReference "OpenSurreal" */,
 			);
 			productRefGroup = C5E5902B2B6379ED00328ED6 /* Products */;
 			projectDirPath = "";
@@ -404,6 +411,7 @@
 				E72683DB2BE73DD10065B78B /* MetalClientSystem.swift in Sources */,
 				8E1241032B7CC0E1005B75F2 /* EntryControls.swift in Sources */,
 				E77FDE582EC5D98200B0ED4F /* CameraView.swift in Sources */,
+				ED26E1462FF97A7700DBFB6F /* SurrealControllerManager.swift in Sources */,
 				D68FA8092B742F6F0052B7FF /* FFR.swift in Sources */,
 				9ED257172B8062A2008DC22F /* Settings.swift in Sources */,
 				C5E590362B6379ED00328ED6 /* Renderer.swift in Sources */,
@@ -733,6 +741,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		ED26E1402FF979CB00DBFB6F /* XCRemoteSwiftPackageReference "OpenSurreal" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/globo128/OpenSurreal.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		ED26E1432FF97A5000DBFB6F /* OpenSurreal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ED26E1402FF979CB00DBFB6F /* XCRemoteSwiftPackageReference "OpenSurreal" */;
+			productName = OpenSurreal;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C5E590222B6379ED00328ED6 /* Project object */;
 }
