@@ -369,8 +369,18 @@ class EventHandler: ObservableObject {
         let isCharging = UIDevice.current.batteryState == .charging
         if streamingActive {
             alvr_send_battery(WorldTracker.deviceIdHead, batteryLevel, isCharging)
-            alvr_send_battery(WorldTracker.deviceIdLeftHand, WorldTracker.shared.leftControllerBatteryPercent, WorldTracker.shared.leftControllerBatteryIsCharging)
-            alvr_send_battery(WorldTracker.deviceIdRightHand, WorldTracker.shared.rightControllerBatteryPercent, WorldTracker.shared.rightControllerBatteryIsCharging)
+
+            // Prefer a connected Surreal Touch controller's battery (0...1) for each
+            // hand; the standard Battery Service has no charging state, so report
+            // false. Fall back to the GameController-sourced values otherwise.
+            let leftSurreal = SurrealInputCache.shared.battery(isLeft: true)
+            let rightSurreal = SurrealInputCache.shared.battery(isLeft: false)
+            let leftPercent = leftSurreal ?? WorldTracker.shared.leftControllerBatteryPercent
+            let leftCharging = leftSurreal != nil ? false : WorldTracker.shared.leftControllerBatteryIsCharging
+            let rightPercent = rightSurreal ?? WorldTracker.shared.rightControllerBatteryPercent
+            let rightCharging = rightSurreal != nil ? false : WorldTracker.shared.rightControllerBatteryIsCharging
+            alvr_send_battery(WorldTracker.deviceIdLeftHand, leftPercent, leftCharging)
+            alvr_send_battery(WorldTracker.deviceIdRightHand, rightPercent, rightCharging)
         }
         
         timeLastSentPeriodicUpdatedValues = CACurrentMediaTime()

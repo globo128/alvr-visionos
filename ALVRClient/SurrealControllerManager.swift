@@ -49,6 +49,11 @@ final class SurrealInputCache: @unchecked Sendable {
     private var rightPaused = false
     private var leftConnected = false
     private var rightConnected = false
+    // Battery charge as a 0...1 gauge (ALVR's alvr_send_battery contract), or nil
+    // until the first reading. Valid while the hand is connected, independent of
+    // pose liveness — battery still matters for a controller that's set down.
+    private var leftBattery: Float? = nil
+    private var rightBattery: Float? = nil
 
     // MARK: Writers (stream pumps)
 
@@ -72,6 +77,12 @@ final class SurrealInputCache: @unchecked Sendable {
         if isLeft { leftButtons = snapshot } else { rightButtons = snapshot }
     }
 
+    /// Stores a battery reading. `gauge` is a 0...1 charge fraction.
+    func storeBattery(isLeft: Bool, gauge: Float) {
+        lock.lock(); defer { lock.unlock() }
+        if isLeft { leftBattery = gauge } else { rightBattery = gauge }
+    }
+
     func setPaused(isLeft: Bool, _ paused: Bool) {
         lock.lock(); defer { lock.unlock() }
         // Pause only gates poses; buttons keep working on a set-down controller.
@@ -92,11 +103,13 @@ final class SurrealInputCache: @unchecked Sendable {
             leftPose = nil
             leftButtons = nil
             leftPaused = false
+            leftBattery = nil
         }
         if !right {
             rightPose = nil
             rightButtons = nil
             rightPaused = false
+            rightBattery = nil
         }
         leftConnected = left
         rightConnected = right
@@ -108,6 +121,7 @@ final class SurrealInputCache: @unchecked Sendable {
         leftButtons = nil; rightButtons = nil
         leftPaused = false; rightPaused = false
         leftConnected = false; rightConnected = false
+        leftBattery = nil; rightBattery = nil
     }
 
     // MARK: Readers (render/event threads)
@@ -133,6 +147,14 @@ final class SurrealInputCache: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard isLeft ? leftConnected : rightConnected else { return nil }
         return isLeft ? leftButtons : rightButtons
+    }
+
+    /// Latest battery charge (0...1) for a connected hand, or nil if that hand isn't a
+    /// connected Surreal controller or hasn't reported yet.
+    func battery(isLeft: Bool) -> Float? {
+        lock.lock(); defer { lock.unlock() }
+        guard isLeft ? leftConnected : rightConnected else { return nil }
+        return isLeft ? leftBattery : rightBattery
     }
 
     /// Live tracking only — false while parked (paused) or stale, so e.g. haptics
@@ -190,6 +212,16 @@ final class SurrealControllerManager: ObservableObject {
                     stick: update.joystick,
                     receivedAt: CACurrentMediaTime()
                 ))
+            }
+        })
+
+        pumpTasks.append(Task {
+            for await update in session.batteryUpdates {
+                guard update.handedness != .unspecified else { continue }
+                // OpenSurreal reports 0...100 %; ALVR's alvr_send_battery wants a
+                // 0...1 gauge.
+                SurrealInputCache.shared.storeBattery(isLeft: update.handedness == .left,
+                                                      gauge: Float(update.level) / 100.0)
             }
         })
 
