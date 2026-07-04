@@ -1222,15 +1222,38 @@ class WorldTracker {
             let orientation = (simd_quaternion(transform) * rotationCorrection).asSanitized()
             let position = transform.columns.3.asSanitized()
             
-            // Convert from Apple space to SteamVR space
+            // Convert from Apple space to SteamVR space. ALVR expects angular velocity
+            // in the same (SteamVR world) frame as the pose and linear velocity — see
+            // DeviceMotion::predict in alvr/common/src/primitives.rs.
             let linVelAdjusted = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * controllerLinVel).asSanitized()
-            
+            let angVelAdjusted = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * controllerAngVel).asSanitized()
+
             let pose = AlvrPose(orientation: AlvrQuat(x: orientation.vector.x, y: orientation.vector.y, z: orientation.vector.z, w: orientation.vector.w), position: (position.x, position.y, position.z))
-            
+
             objc_sync_exit(controllerLock)
-            return AlvrDeviceMotion(device_id: device_id, pose: pose, linear_velocity: (linVelAdjusted.x, linVelAdjusted.y, linVelAdjusted.z), angular_velocity: (controllerAngVel.x, controllerAngVel.y, controllerAngVel.z))
+            return AlvrDeviceMotion(device_id: device_id, pose: pose, linear_velocity: (linVelAdjusted.x, linVelAdjusted.y, linVelAdjusted.z), angular_velocity: (angVelAdjusted.x, angVelAdjusted.y, angVelAdjusted.z))
         }
         return nil
+    }
+
+    // Reported Surreal velocities feed both the extrapolation below and SteamVR's own
+    // prediction, so condition them first: below the dead zone is tracker noise while
+    // effectively at rest — zero it so neither predictor wanders. Above the cutoff is
+    // a glitch; rescale rather than zero so a clipped throw still throws.
+    static let surrealLinearVelocityDeadZone: Float = 0.02  // m/s
+    static let surrealAngularVelocityDeadZone: Float = 0.1  // rad/s (~5.7°/s)
+    static let surrealLinearVelocityCutoff: Float = 8.0     // m/s
+    static let surrealAngularVelocityCutoff: Float = 20.0   // rad/s
+
+    private static func conditionVelocity(_ velocity: simd_float3, deadZone: Float, cutoff: Float) -> simd_float3 {
+        let magnitude = simd_length(velocity)
+        if magnitude < deadZone {
+            return simd_float3()
+        }
+        if magnitude > cutoff {
+            return velocity * (cutoff / magnitude)
+        }
+        return velocity
     }
 
     func surrealToAlvrDeviceMotion(_ isLeft: Bool, _ targetTs: Double) -> AlvrDeviceMotion? {
@@ -1247,18 +1270,34 @@ class WorldTracker {
         let correctionPitchDegrees: Float = 0.0
         let rotationCorrection = simd_quatf(angle: correctionPitchDegrees * .pi / 180.0, axis: simd_float3(1, 0, 0))
 
-        // BLE poses arrive below display rate; constant-velocity position prediction
-        // to the render target timestamp hides most of the extra latency.
-        var worldFromController = snap.worldFromController
-        let dt = Float(min(max(targetTs - snap.receivedAt, 0.0), 0.05))
-        worldFromController.columns.3 += simd_float4(snap.linearVelocity * dt, 0.0)
+        let linVelWorld = Self.conditionVelocity(snap.linearVelocity, deadZone: Self.surrealLinearVelocityDeadZone, cutoff: Self.surrealLinearVelocityCutoff)
+        let angVelWorld = Self.conditionVelocity(snap.angularVelocity, deadZone: Self.surrealAngularVelocityDeadZone, cutoff: Self.surrealAngularVelocityCutoff)
 
-        // Convert from Apple space to SteamVR space
+        // BLE poses arrive below display rate; extrapolate position and orientation to
+        // the render target timestamp to hide most of the extra latency. sampleTime is
+        // the firmware timestamp mapped onto the host clock, so dt is the sample's true
+        // age — BLE and scheduler delivery jitter don't leak into the prediction.
+        var worldFromController = snap.worldFromController
+        let dt = Float(min(max(targetTs - snap.sampleTime, 0.0), 0.08))
+        let predictedPosition = worldFromController.columns.3.asFloat3() + linVelWorld * dt
+        let angularSpeed = simd_length(angVelWorld)
+        if angularSpeed > 0.0 {
+            // World-frame pre-multiply — the same convention as ALVR's DeviceMotion::predict.
+            let predictedOrientation = simd_normalize(
+                simd_quatf(angle: angularSpeed * dt, axis: angVelWorld / angularSpeed) * simd_quaternion(worldFromController)
+            )
+            worldFromController = simd_float4x4(predictedOrientation)
+        }
+        worldFromController.columns.3 = simd_float4(predictedPosition, 1.0)
+
+        // Convert from Apple space to SteamVR space. ALVR expects both velocities in
+        // the same (SteamVR world) frame as the pose — see DeviceMotion::predict in
+        // alvr/common/src/primitives.rs.
         let transform = self.worldTrackingSteamVRTransform.inverse * worldFromController
         let orientation = (simd_quaternion(transform) * rotationCorrection).asSanitized()
         let position = transform.columns.3.asSanitized()
-        let linVel = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * snap.linearVelocity).asSanitized()
-        let angVel = snap.angularVelocity.asSanitized()
+        let linVel = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * linVelWorld).asSanitized()
+        let angVel = (self.worldTrackingSteamVRTransform.orientationOnly().inverse * angVelWorld).asSanitized()
 
         let pose = AlvrPose(orientation: AlvrQuat(x: orientation.vector.x, y: orientation.vector.y, z: orientation.vector.z, w: orientation.vector.w), position: (position.x, position.y, position.z))
         return AlvrDeviceMotion(device_id: device_id, pose: pose, linear_velocity: (linVel.x, linVel.y, linVel.z), angular_velocity: (angVel.x, angVel.y, angVel.z))
