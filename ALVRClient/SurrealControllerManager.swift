@@ -16,12 +16,13 @@ import OpenSurreal
 
 struct SurrealPoseSnapshot {
     var worldFromController: simd_float4x4 // ARKit world space, same as originFromAnchorTransform
-    var linearVelocity: simd_float3 // world axes; includes the recovered calibration-frame velocity
-    var angularVelocity: simd_float3 // world axes
-    // receivedAt is CACurrentMediaTime() when the pump stored the packet — that's after
-    // the BLE link plus two main-actor hops, so it's only good for link liveness
-    // (staleAfter). sampleTime is the firmware timestamp mapped onto the same clock by
-    // SurrealClockSync; use it for prediction dt.
+    var linearVelocity: simd_float3 // world axes; complete (includes calibration-frame motion)
+    var angularVelocity: simd_float3 // world axes; complete
+    // receivedAt is CACurrentMediaTime() when the pump stored the packet — after the
+    // BLE link plus two main-actor hops, so it's only good for link liveness
+    // (staleAfter). sampleTime is OpenSurreal's WorldPose.sampleTime: the firmware
+    // timestamp mapped onto the same clock, stamped at the CoreBluetooth callback —
+    // use it for prediction dt.
     var receivedAt: Double
     var sampleTime: Double
 }
@@ -35,48 +36,6 @@ struct SurrealButtonsSnapshot {
     var grip: Float = 0.0
     var stick = SIMD2<Float>(0.0, 0.0)
     var receivedAt: Double = 0.0
-}
-
-/// Maps firmware pose timestamps onto the host `CACurrentMediaTime()` clock.
-///
-/// `receivedAt − deviceTime` is the true clock offset plus a non-negative delivery
-/// delay (BLE link + two main-actor hops), so the minimum over a sliding window
-/// tracks the fastest-delivery path and converges on the true offset. This is the
-/// one-way half of the manufacturer SDK's NTP-over-BLE sync — no firmware
-/// cooperation needed.
-struct SurrealClockSync {
-    // Firmware ticks are nanoseconds (~9.5e6 ticks between packets at ~105 Hz, per
-    // decoded captures from the manufacturer's own diagnostics logs).
-    static let tickToSeconds = 1e-9
-    // Min-filter horizon. Crystal drift over 3 s (~50 ppm) is ~0.15 ms — negligible.
-    static let windowSeconds = 3.0
-    // An offset jump this large means the controller rebooted (timestamps reset).
-    static let resetThreshold = 0.5
-    // A sample estimated older than this means the estimator itself is wrong (e.g. a
-    // firmware revision changed the tick unit) — fall back to arrival time.
-    static let maxCredibleAge = 0.25
-
-    private var samples: [(receivedAt: Double, offset: Double)] = []
-
-    mutating func sampleTime(deviceTimestamp: UInt64, receivedAt: Double) -> Double {
-        let deviceTime = Double(deviceTimestamp) * Self.tickToSeconds
-        let offset = receivedAt - deviceTime
-        if let last = samples.last, abs(offset - last.offset) > Self.resetThreshold {
-            samples.removeAll()
-        }
-        samples.append((receivedAt: receivedAt, offset: offset))
-        samples.removeAll { receivedAt - $0.receivedAt > Self.windowSeconds }
-        let minOffset = samples.min { $0.offset < $1.offset }!.offset
-        let sampleTime = deviceTime + minOffset
-        guard receivedAt - sampleTime < Self.maxCredibleAge else {
-            return receivedAt
-        }
-        return sampleTime
-    }
-
-    mutating func reset() {
-        samples.removeAll()
-    }
 }
 
 /// Debug-only tracking diagnostics, aggregated and printed at 1 Hz per hand.
@@ -142,6 +101,13 @@ struct SurrealTrackingDiagnostics {
         }
     }
 
+    /// Forget the differencing anchor across a set-down/pickup/disconnect so the
+    /// residual metric doesn't count the discontinuity as prediction error.
+    mutating func reset() {
+        previous = nil
+        previousDeviceTimestamp = 0
+    }
+
     private mutating func flush(at now: Double) {
         if packetCount > 0 {
             let seconds = now - windowStart
@@ -165,75 +131,6 @@ struct SurrealTrackingDiagnostics {
         positionErrorSquaredSum = 0
         orientationErrorSquaredSum = 0
         residualCount = 0
-    }
-}
-
-/// Per-hand conditioning between raw OpenSurreal world poses and the snapshots the
-/// render thread consumes: firmware-clock alignment, plus recovery of the velocity
-/// that wrist re-registration adds on top of the controller's own reported motion.
-struct SurrealPoseConditioner {
-    // While the wrist is authoritative, WorldPose.linearVelocity deliberately excludes
-    // the calibration frame's own motion (the per-frame re-registration onto the
-    // moving wrist), so arm sweeps under-report velocity. The finite-difference
-    // velocity across packets includes that motion; the smoothed difference between
-    // the two recovers it.
-    static let residualTau = 0.15 // s, EWMA time constant
-    static let residualClamp: Float = 1.5 // m/s, bounds post-pickup snap-window noise
-
-    private var clock = SurrealClockSync()
-    private var lastPosition: simd_float3? = nil
-    private var lastSampleTime = 0.0
-    private var residualVelocity = simd_float3()
-    private var diagnostics: SurrealTrackingDiagnostics
-
-    init(label: String) {
-        diagnostics = SurrealTrackingDiagnostics(label: label)
-    }
-
-    mutating func snapshot(for pose: WorldPose, receivedAt: Double) -> SurrealPoseSnapshot {
-        let sampleTime = clock.sampleTime(deviceTimestamp: pose.timestamp, receivedAt: receivedAt)
-
-        let position = pose.position
-        let dt = sampleTime - lastSampleTime
-        if lastPosition == nil || dt <= 0 || dt > 0.1 {
-            // First packet, clock reset/fallback, or a delivery gap — can't difference
-            // across it.
-            residualVelocity = simd_float3()
-        } else {
-            let differenced = (position - lastPosition!) / Float(dt)
-            var residual = differenced - pose.linearVelocity
-            let magnitude = simd_length(residual)
-            if magnitude > Self.residualClamp {
-                residual *= Self.residualClamp / magnitude
-            }
-            residualVelocity += (residual - residualVelocity) * Float(1 - exp(-dt / Self.residualTau))
-        }
-        lastPosition = position
-        lastSampleTime = sampleTime
-
-        let snapshot = SurrealPoseSnapshot(
-            worldFromController: pose.transform,
-            linearVelocity: pose.linearVelocity + residualVelocity,
-            angularVelocity: pose.angularVelocity,
-            receivedAt: receivedAt,
-            sampleTime: sampleTime
-        )
-        diagnostics.record(pose: pose, snapshot: snapshot)
-        return snapshot
-    }
-
-    /// Motion can't be differenced across a set-down or pickup; the clock offset is
-    /// still valid, so keep it.
-    mutating func resetMotion() {
-        lastPosition = nil
-        residualVelocity = simd_float3()
-    }
-
-    /// Full reset for disconnects — the next connection may be a different or
-    /// rebooted controller.
-    mutating func reset() {
-        clock.reset()
-        resetMotion()
     }
 }
 
@@ -381,8 +278,8 @@ final class SurrealControllerManager: ObservableObject {
 
     @Published private(set) var session: SurrealControllerSession? = nil
     private var pumpTasks: [Task<Void, Never>] = []
-    private var leftConditioner = SurrealPoseConditioner(label: "L")
-    private var rightConditioner = SurrealPoseConditioner(label: "R")
+    private var leftDiagnostics = SurrealTrackingDiagnostics(label: "L")
+    private var rightDiagnostics = SurrealTrackingDiagnostics(label: "R")
 
     private init() {}
 
@@ -398,9 +295,21 @@ final class SurrealControllerManager: ObservableObject {
             for await pose in session.worldPoseUpdates {
                 guard pose.handedness != .unspecified else { continue }
                 let isLeft = pose.handedness == .left
-                let snapshot = isLeft
-                    ? self.leftConditioner.snapshot(for: pose, receivedAt: CACurrentMediaTime())
-                    : self.rightConditioner.snapshot(for: pose, receivedAt: CACurrentMediaTime())
+                // Timing and velocity completion are OpenSurreal's job now:
+                // sampleTime is the firmware timestamp on the host clock, and the
+                // velocities already include calibration-frame motion.
+                let snapshot = SurrealPoseSnapshot(
+                    worldFromController: pose.transform,
+                    linearVelocity: pose.linearVelocity,
+                    angularVelocity: pose.angularVelocity,
+                    receivedAt: CACurrentMediaTime(),
+                    sampleTime: pose.sampleTime
+                )
+                if isLeft {
+                    self.leftDiagnostics.record(pose: pose, snapshot: snapshot)
+                } else {
+                    self.rightDiagnostics.record(pose: pose, snapshot: snapshot)
+                }
                 SurrealInputCache.shared.storePose(isLeft: isLeft, snapshot)
             }
         })
@@ -438,8 +347,8 @@ final class SurrealControllerManager: ObservableObject {
                     let leftConnected = state == .leftConnected || state == .bothConnected
                     let rightConnected = state == .rightConnected || state == .bothConnected
                     SurrealInputCache.shared.setConnected(left: leftConnected, right: rightConnected)
-                    if !leftConnected { self.leftConditioner.reset() }
-                    if !rightConnected { self.rightConditioner.reset() }
+                    if !leftConnected { self.leftDiagnostics.reset() }
+                    if !rightConnected { self.rightDiagnostics.reset() }
                     if leftConnected || rightConnected {
                         // Safe to call repeatedly; the OpenSurreal hand-tracking
                         // session idles until an immersive space is open.
@@ -455,14 +364,12 @@ final class SurrealControllerManager: ObservableObject {
                 case .paused(let hand):
                     if hand != .unspecified {
                         SurrealInputCache.shared.setPaused(isLeft: hand == .left, true)
-                        if hand == .left { self.leftConditioner.resetMotion() } else { self.rightConditioner.resetMotion() }
+                        if hand == .left { self.leftDiagnostics.reset() } else { self.rightDiagnostics.reset() }
                     }
                 case .resumed(let hand):
                     if hand != .unspecified {
                         SurrealInputCache.shared.setPaused(isLeft: hand == .left, false)
-                        // Pickup starts the reacquisition snap window — per-frame
-                        // calibration jumps that would pollute the residual estimate.
-                        if hand == .left { self.leftConditioner.resetMotion() } else { self.rightConditioner.resetMotion() }
+                        if hand == .left { self.leftDiagnostics.reset() } else { self.rightDiagnostics.reset() }
                     }
                 }
             }
@@ -477,8 +384,8 @@ final class SurrealControllerManager: ObservableObject {
         session?.stop()
         session = nil
         SurrealInputCache.shared.clearAll()
-        leftConditioner.reset()
-        rightConditioner.reset()
+        leftDiagnostics.reset()
+        rightDiagnostics.reset()
     }
 
     func vibrate(isLeft: Bool, amplitude: Float, frequency: Float, duration: Double) {
